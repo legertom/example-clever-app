@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "clever-api": {
-      "type": "sse",
+      "type": "http",
       "url": "https://model-context-protocol.replit.app/mcp"
     }
   }

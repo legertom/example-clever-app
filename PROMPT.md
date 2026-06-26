@@ -22,8 +22,14 @@ You are guiding a Clever engineer, step by step, from zero to a deployed sample 
 ## Step 1 — Add and start the MCP server
 
 ```bash
-claude mcp add --transport sse --scope project clever-api https://model-context-protocol.replit.app/mcp
+claude mcp add --transport http --scope project clever-api https://model-context-protocol.replit.app/mcp
 ```
+
+> **Transport must be `http` (Streamable HTTP), not `sse`.** Despite the `/mcp` path
+> and earlier guides calling it SSE, this server speaks the Streamable HTTP transport
+> (verified: an `initialize` POST returns `serverInfo: "Clever API"`). If `.mcp.json`
+> says `"type": "sse"`, the server will connect and pass approval but load **zero
+> tools** — change it to `"type": "http"` and reload.
 
 This writes `.mcp.json` in the project. Then:
 - Tell the user to **restart `claude`** and **approve** `clever-api` when prompted (project-scoped servers require one-time approval).
