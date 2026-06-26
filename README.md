@@ -1,44 +1,74 @@
-# Example Clever App
+# Example Clever App — SSO + Secure Sync
 
-A minimal Node/Express web app that signs users in with **Clever SSO** using the
-OAuth 2.0 authorization-code flow.
+A Next.js (App Router) sample app demonstrating two Clever integrations:
 
-## Flow
+- **SSO** — "Log in with Clever" via OAuth 2.0 (per-user authentication).
+- **Secure Sync** — pull a district's roster (schools, sections, courses,
+  students, teachers) via the Data API, triggered manually or on a schedule.
 
-1. User clicks **Log in with Clever** → app redirects to `https://clever.com/oauth/authorize`
-   with a random `state` (CSRF protection).
-2. Clever redirects back to `/oauth/callback?code=...&state=...`.
-3. App verifies `state`, then exchanges the `code` at `https://clever.com/oauth/tokens`
-   using HTTP Basic auth (`base64(client_id:client_secret)`).
-4. App calls `https://api.clever.com/v3.0/me` for the user's Clever id, then
-   `/v3.0/users/{id}` for the full profile, and stores it in the session.
+Deploys to Vercel with zero config.
+
+## Architecture at a glance
+
+| | SSO | Secure Sync |
+|---|---|---|
+| Auth | Per-user OAuth token (24h) | District-app Bearer token |
+| Endpoints | `/oauth/*`, `/v3.0/me`, `/v3.0/users/{id}` | `/v3.0/schools`, `/users`, `/sections`, `/courses` |
+| Code | [app/api/login](app/api/login/route.js), [app/api/oauth/callback](app/api/oauth/callback/route.js) | [app/api/sync](app/api/sync/route.js), [app/api/cron/sync](app/api/cron/sync/route.js) |
+
+Shared helpers live in [lib/clever.js](lib/clever.js) (API calls + pagination),
+[lib/session.js](lib/session.js) (iron-session), and [lib/store.js](lib/store.js)
+(roster store + sync logic).
 
 ## Setup
 
-1. Register an app at <https://apps.clever.com> and note your **Client ID** and **Client Secret**.
-2. Add `http://localhost:3000/oauth/callback` as a redirect URI on the Clever app.
+1. **Clever app** — at <https://apps.clever.com>, copy your **Client ID** /
+   **Client Secret**, and register redirect URI
+   `http://localhost:3000/api/oauth/callback`.
+2. **Sandbox district token** — App Dashboard → Data Sources → Sandbox District →
+   API Token. This is your `CLEVER_DISTRICT_TOKEN`.
 3. Configure and run:
 
    ```bash
-   cp .env.example .env      # then fill in CLEVER_CLIENT_ID / SECRET / SESSION_SECRET
+   cp .env.example .env.local   # fill in all values
    npm install
-   npm run dev
+   npm run dev                  # http://localhost:3000
    ```
 
-4. Open <http://localhost:3000>.
+## Environment variables
 
-## Notes
+| Var | Used by | Notes |
+|---|---|---|
+| `CLEVER_CLIENT_ID` / `CLEVER_CLIENT_SECRET` | SSO | From the Clever app dashboard |
+| `CLEVER_REDIRECT_URI` | SSO | Must match the registered URI **exactly** |
+| `SESSION_PASSWORD` | session | ≥32 random chars (`openssl rand -base64 32`) |
+| `CLEVER_DISTRICT_TOKEN` | Secure Sync | Sandbox district Bearer token |
+| `CRON_SECRET` | Secure Sync cron | Protects `/api/cron/sync` |
 
-- Redirect URI must match **exactly** between the authorize request, the token
-  exchange, and the value registered on your Clever app.
-- Authorization codes are valid for ~1 minute and single-use; tokens last 24h and
-  are not refreshable (re-run the login flow).
-- For production, terminate TLS and set the session cookie `secure: true` in `server.js`.
+## Sync model
 
-## Onboarding others
+Full pull: each sync re-downloads all records via the Data API (paginating with
+the `links` `next` cursor). Triggers:
 
-To take a teammate from zero to a deployed Clever SSO app (MCP server → GitHub →
-Vercel → secrets), see [PROMPT.md](PROMPT.md) — a copy-paste prompt for a fresh
-Claude Code session.
+- **Manual** — the "Sync now" button → `POST /api/sync`.
+- **Scheduled** — Vercel Cron hits `GET /api/cron/sync` hourly (see
+  [vercel.json](vercel.json)), authenticated with `CRON_SECRET`.
 
-Reference: <https://dev.clever.com/docs/oauth-implementation>
+> ⚠️ **In-memory store caveat:** synced data is held in process memory
+> ([lib/store.js](lib/store.js)). In local dev that's shared across requests. On
+> Vercel, each serverless invocation has its own memory, so the cron sync and the
+> UI won't share state in production. To make sync durable, swap `lib/store.js`
+> for a real store (Vercel Postgres / KV) — the rest of the app only calls
+> `getStore()` / `runSync()`.
+
+## Deploy to Vercel + secrets
+
+See [PROMPT.md](PROMPT.md) for the full zero-to-deployed walkthrough (MCP server →
+GitHub → Vercel → environment variables), or in short: import the repo in Vercel,
+add the env vars above under Project → Settings → Environment Variables (also add
+`https://<your-app>.vercel.app/api/oauth/callback` as a Clever redirect URI), and
+redeploy.
+
+References:
+[SSO](https://dev.clever.com/docs/oauth-implementation) ·
+[Secure Sync](https://dev.clever.com/docs/secure-sync-rostering)

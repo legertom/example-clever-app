@@ -1,2 +1,8 @@
 node_modules/
-.env
+.next/
+.vercel
+out/
+
+# env files (keep the example)
+.env*
+!.env.example
